@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maldix OS CMD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&display=swap');
+        
+        .terminal {
+            font-family: 'Inconsolata', monospace;
+            cursor: default;
+            caret-color: transparent; 
+            transition: all 0.3s ease; 
+        }
+
+        .cursor {
+            background-color: #34d399; 
+            width: 0.5rem;
+            height: 1.25rem;
+            display: inline-block;
+            margin-left: 2px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        #commandInput {
+            background-color: transparent;
+            color: transparent;
+            border: none;
+            outline: none;
+            width: 0; 
+            height: 0;
+            position: absolute;
+            z-index: -1;
+        }
+
+        .terminal::-webkit-scrollbar {
+            width: 8px;
+        }
+        .terminal::-webkit-scrollbar-thumb {
+            background-color: #1f2937; 
+            border-radius: 4px;
+        }
+
+        @keyframes rainbow-filter {
+            0% { filter: hue-rotate(0deg); }
+            100% { filter: hue-rotate(360deg); }
+        }
+        .rainbow-text {
+            color: #34d399; 
+            animation: rainbow-filter 6s linear infinite;
+            font-size: 1.5rem; 
+            display: inline-block; 
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 flex items-center justify-center min-h-screen p-4 transition-colors duration-300">
+
+    <div id="terminal" 
+         class="terminal bg-gray-900 text-green-400 p-6 w-full max-w-4xl h-[80vh] border-4 border-gray-800 shadow-2xl rounded-lg overflow-y-auto">
+
+        <div id="outputHistory" class="whitespace-pre-wrap pb-4">
+        </div>
+
+        <div class="flex items-center">
+            <span id="prompt" class="select-none text-red-400">maddox@maldix:~ $</span>
+            
+            <div class="flex items-center ml-2"> 
+                <span id="typedCommand"></span>
+                <span id="cursor" class="cursor"></span>
+            </div>
+
+            <input type="text" id="commandInput" autocomplete="off" autofocus>
+        </div>
+    </div>
+
+    <script>
+        const terminal = document.getElementById('terminal');
+        const outputHistory = document.getElementById('outputHistory');
+        const commandInput = document.getElementById('commandInput');
+        const typedCommandDisplay = document.getElementById('typedCommand');
+        const cursor = document.getElementById('cursor');
+        const prompt = document.getElementById('prompt');
+        
+        const apiKey = ""; 
+        const modelName = 'gemini-2.5-flash-preview-05-20';
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+        const PASSWORD_KEY = 'maldix_password';
+        const USERNAME_KEY = 'maldix_username'; 
+        const THEME_KEY = 'maldix_theme_index'; 
+        
+        let currentUsername = 'maddox'; 
+        let isLocked = false;
+        let isProcessingAI = false; 
+        let currentTheme; 
+        
+        const themes = [
+            { name: "Default", background: "bg-gray-900", textColor: "text-green-400", promptColor: "text-red-400", cursorColor: "#34d399" }, 
+            { name: "Retro DOS", background: "bg-gray-700", textColor: "text-gray-100", promptColor: "text-cyan-400", cursorColor: "#f3f4f6" }, 
+            { name: "Monokai", background: "bg-[#272822]", textColor: "text-[#f8f8f2]", promptColor: "text-[#fd971f]", cursorColor: "#f8f8f2" }, 
+            { name: "Solarized Light", background: "bg-[#fdf6e3]", textColor: "text-[#586e75]", promptColor: "text-[#cb4b16]", cursorColor: "#586e75" }, 
+            { name: "Solarized Dark", background: "bg-[#002b36]", textColor: "text-[#839496]", promptColor: "text-[#b58900]", cursorColor: "#839496" }, 
+            { name: "Dracula", background: "bg-[#282a36]", textColor: "text-[#f8f8f2]", promptColor: "text-[#ff79c6]", cursorColor: "#f8f8f2" }, 
+            { name: "Hacker Blue", background: "bg-black", textColor: "text-blue-400", promptColor: "text-cyan-400", cursorColor: "#60a5fa" }, 
+            { name: "Matrix", background: "bg-black", textColor: "text-lime-500", promptColor: "text-green-600", cursorColor: "#84cc16" }, 
+            { name: "Amber", background: "bg-gray-900", textColor: "text-amber-500", promptColor: "text-yellow-400", cursorColor: "#f59e0b" }, 
+            { name: "Winter", background: "bg-blue-900", textColor: "text-blue-200", promptColor: "text-sky-300", cursorColor: "#bae6fd" }, 
+            { name: "Purple Rain", background: "bg-purple-900", textColor: "text-fuchsia-300", promptColor: "text-pink-400", cursorColor: "#e879f9" }, 
+            { name: "Crimson", background: "bg-black", textColor: "text-red-500", promptColor: "text-rose-500", cursorColor: "#ef4444" }, 
+            { name: "Gold", background: "bg-black", textColor: "text-yellow-300", promptColor: "text-amber-500", cursorColor: "#fcd34d" }, 
+            { name: "Grey Scale", background: "bg-gray-900", textColor: "text-gray-400", promptColor: "text-gray-600", cursorColor: "#9ca3af" }, 
+            { name: "Bubblegum", background: "bg-pink-100", textColor: "text-pink-900", promptColor: "text-purple-600", cursorColor: "#9333ea" }, 
+            { name: "Ocean", background: "bg-gray-800", textColor: "text-teal-400", promptColor: "text-cyan-400", cursorColor: "#2dd4bf" }, 
+            { name: "Forest", background: "bg-green-900", textColor: "text-lime-300", promptColor: "text-yellow-500", cursorColor: "#d9f99d" }, 
+            { name: "Space", background: "bg-gray-900", textColor: "text-indigo-400", promptColor: "text-violet-500", cursorColor: "#a78bfa" }, 
+            { name: "Fire", background: "bg-red-900", textColor: "text-orange-300", promptColor: "text-red-400", cursorColor: "#fb923c" }, 
+            { name: "Whiteout", background: "bg-white", textColor: "text-gray-800", promptColor: "text-black", cursorColor: "#1f2937" }, 
+            { name: "Tofu", background: "bg-white", textColor: "text-black", promptColor: "text-black", cursorColor: "#000000" }, 
+            { name: "Redmond", background: "bg-blue-700", textColor: "text-white", promptColor: "text-yellow-300", cursorColor: "#fcd34d" }, 
+            { name: "Kali Linux", background: "bg-black", textColor: "text-lime-400", promptColor: "text-cyan-400", cursorColor: "#a3e635" }, 
+        ];
+
+        const fortunes = [
+            "John is always correct",
+            "Error: honk shoo",
+            "mom i took a bite out of my cord and it isn't working anymore",
+            "Name any weird technological item, I bet you Bringus studios has modded it.",
+            "my brain is short circuited",
+            "Have you tried P̶̨͈͎̮̤̘͚̞̖͉̗̄͠I̴͓̜̣͚̪̪̦͕͈̠̫̤̿̌̏͌͂͊̔̾̉̚̕͜ͅŽ̴̛̛̠̮̪͕̙̃̂͋͂̔̽̊̒́͒̌͘Z̶̢̛̦͚̮̫̰͕͈̔̌̂́̈́̍̈́͑̄̎̚͝͝ͅA̸̛͎͈̬̯̓̈́͆̈́̇̓̈͐̇͆̆͆́ ̴͊̽̏̌͗̚ thérapeutique to ̰͖̲͚͈͙͍̜͜W̶̦̺̋̿̑̌̊͊̍͆́͠Ǎ̴͇̘̯͕͖̦̝̜̳͛F̴͓̟̣͇͓̮̈́̑̆͂́̓͑̋̓̅̊͠͝ͅF̷̨͖̟̈́̓̐̏̑̎͘̚͘͜͝͝͝L̵̛̫̲̱̬̥̱͌̊Ȩ̴̘͍͇͇̩̮͔̱͕̗̰͍̀̄̋̑̾̏̋̐̊S̷̡̢̛͎̠̮͉͎̋͑͑͋̓̌̽̄̓̇̈́̅̕͜",
+            "Maddox is very smart and is very cool.",
+            "The fastest way to double your money is to take a bite out of the middle.",
+            "Hi Preston if your reading this",
+            "Dean is so cute (use the command, honk shoo )",
+            "There are 11 different messages including this one!",
+        ];
+
+        const ASCII_FONT = {
+            ' ': ["     ", "     ", "     ", "     ", "     "],
+            'A': [" AAA ", "A   A", "AAAAA", "A   A", "A   A"],
+            'B': ["BBBB ", "B   B", "BBBB ", "B   B", "BBBB "],
+            'C': [" CCCCC", "C    ", "C    ", "C    ", " CCCCC"],
+            'D': ["DDDD ", "D   D", "D   D", "D   D", "DDDD "],
+            'E': ["EEEEE", "E    ", "EEE  ", "E    ", "EEEEE"],
+            'F': ["FFFFF", "F    ", "FFF  ", "F    ", "F    "],
+            'G': [" GGG ", "G    ", "G GGG", "G   G", " GGG "],
+            'H': ["H   H", "H   H", "HHHHH", "H   H", "H   H"],
+            'I': [" IIII", "  I  ", "  I  ", "  I  ", " IIII"],
+            'J': ["JJJJJ", "    J", "    J", "J   J", " JJJ "],
+            'K': ["K  K ", "K K  ", "KK   ", "K K  ", "K  K "],
+            'L': ["L    ", "L    ", "L    ", "L    ", "LLLLL"],
+            'M': ["M   M", "MM MM", "M M M", "M   M", "M   M"],
+            'N': ["N   N", "NN  N", "N N N", "N  NN", "N   N"],
+            'O': [" OOO ", "O   O", "O   O", "O   O", " OOO "],
+            'P': ["PPPP ", "P   P", "PPPP ", "P    ", "P    "],
+            'Q': [" QQQ ", "Q   Q", "Q Q Q", "Q  Q ", " QQQQ"],
+            'R': ["RRRR ", "R   R", "RRRR ", "R R  ", "R  RR"],
+            'S': [" SSSS", "S    ", " SSS ", "    S", "SSSS "],
+            'T': ["TTTTT", "  T  ", "  T  ", "  T  ", "  T  "],
+            'U': ["U   U", "U   U", "U   U", "U   U", " UUU "],
+            'V': ["V   V", "V   V", "V   V", " V V ", "  V  "],
+            'W': ["W   W", "W   W", "W W W", "WW WW", "W W W"],
+            'X': ["X   X", " X X ", "  X  ", " X X ", "X   X"],
+            'Y': ["Y   Y", " Y Y ", "  Y  ", "  Y  ", "  Y  "],
+            'Z': ["ZZZZZ", "   Z ", "  Z  ", " Z   ", "ZZZZZ"],
+            '0': [" 000 ", "0   0", "0 0 0", "0   0", " 000 "],
+            '1': ["  1  ", " 11  ", "  1  ", "  1  ", " 111 "],
+            '2': [" 222 ", "2   2", "  2  ", " 2   ", "22222"],
+            '3': [" 333 ", "3   3", "  33 ", "3   3", " 333 "],
+            '4': ["4   4", "4   4", "44444", "    4", "    4"],
+            '5': ["55555", "5    ", "5555 ", "    5", "5555 "],
+            '6': [" 666 ", "6    ", "6666 ", "6   6", " 666 "],
+            '7': ["77777", "    7", "   7 ", "  7  ", " 7   "],
+            '8': [" 888 ", "8   8", " 888 ", "8   8", " 888 "],
+            '9': [" 999 ", "9   9", " 9999", "    9", " 999 "],
+            '!': ["  !  ", "  !  ", "  !  ", "     ", "  !  "],
+            '.': ["     ", "     ", "     ", "     ", "  .  "],
+            '?': [" ??? ", "    ?", "  ?  ", "     ", "  ?  "],
+        };
+        const FALLBACK_CHAR = ["  #  ", " ### ", "#####", " ### ", "  #  "]; 
+
+        function generateBanner(message) {
+            const uppercaseMessage = message.toUpperCase();
+            const bannerLines = ["", "", "", "", ""]; 
+
+            for (let i = 0; i < uppercaseMessage.length; i++) {
+                const char = uppercaseMessage[i];
+                const separator = (char === ' ') ? "  " : " "; 
+                
+                const charArt = ASCII_FONT[char] || FALLBACK_CHAR;
+                
+                for (let j = 0; j < 5; j++) {
+                    bannerLines[j] += charArt[j] + separator; 
+                }
+            }
+
+            return bannerLines.join('\n');
+        }
+
+        const HONK_SHOO_URL = "https://www.myinstants.com/media/sounds/snore-mimimimimi.mp3";
+        const honkShooSound = new Audio(HONK_SHOO_URL);
+        
+        const CHASE_URL = "https://www.myinstants.com/media/sounds/thanks-a-lot-wall.mp3";
+        const chaseSound = new Audio(CHASE_URL);
+
+        function playHonkShoo() {
+            honkShooSound.currentTime = 0; 
+            honkShooSound.volume = 0.5; 
+            
+            honkShooSound.play().catch(error => {
+                console.error("Maldix Audio Error: Failed to play 'honk shoo' sound.", error);
+                appendOutput(`Maldix Audio Error: Honk Shoo playback failed (Error: ${error.message}).`, 'text-red-600');
+            });
+        }
+        
+        function playChaseSound() {
+            chaseSound.currentTime = 0; 
+            chaseSound.volume = 0.5; 
+            
+            chaseSound.play().catch(error => {
+                console.error("Maldix Audio Error: Failed to play 'chase' sound.", error);
+                appendOutput(`Maldix Audio Error: Chase playback failed (Error: ${error.message}).`, 'text-red-600');
+            });
+        }
+
+        function removeClassesByPrefix(element, prefix) {
+            const classesToRemove = Array.from(element.classList).filter(c => c.startsWith(prefix));
+            element.classList.remove(...classesToRemove);
+        }
+
+        function applyTheme(theme) {
+            removeClassesByPrefix(terminal, 'bg-');
+            removeClassesByPrefix(terminal, 'text-');
+            terminal.classList.add(theme.background, theme.textColor);
+
+            removeClassesByPrefix(prompt, 'text-');
+            prompt.classList.add(theme.promptColor);
+
+            cursor.style.backgroundColor = theme.cursorColor;
+
+            removeClassesByPrefix(document.body, 'bg-');
+            document.body.classList.add(theme.background);
+
+            let newBorderColor;
+            if (theme.background.includes('black') || theme.background.includes('white')) {
+                newBorderColor = theme.background.includes('white') ? 'border-gray-300' : 'border-gray-700';
+            } else {
+                newBorderColor = 'border-gray-800';
+            }
+            
+            removeClassesByPrefix(terminal, 'border-');
+            terminal.classList.add('border-4', newBorderColor);
+            
+            currentTheme = theme;
+        }
+
+        function updatePromptDisplay() {
+            prompt.textContent = `${currentUsername}@maldix:~ $`;
+        }
+
+        window.onload = focusInput;
+
+        function appendOutput(text, className) {
+            const line = document.createElement('div');
+            line.classList.add(className);
+            line.innerHTML = text; 
+            outputHistory.appendChild(line);
+        }
+        
+        function appendAnimatedText(text, className) {
+            const line = document.createElement('div');
+            const span = document.createElement('span');
+            
+            span.textContent = text;
+            span.classList.add(className);
+            
+            line.appendChild(span);
+            outputHistory.appendChild(line);
+        }
+
+        function focusInput() {
+            commandInput.focus();
+        }
+
+        function normalizeUrl(url) {
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                return 'https://' + url;
+            }
+            return url;
+        }
+
+        async function makeApiCallWithBackoff(payload, maxRetries = 5, delay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        return await response.json();
+                    } else if (response.status === 429 || response.status >= 500) {
+                        if (i < maxRetries - 1) {
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            delay *= 2; 
+                        } else {
+                            throw new Error(`API failed after ${maxRetries} retries with status: ${response.status}`);
+                        }
+                    } else {
+                        const errorBody = await response.json();
+                        throw new Error(`API error: ${response.status} - ${errorBody.error?.message || 'Unknown error'}`);
+                    }
+                } catch (error) {
+                    if (i < maxRetries - 1) {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2;
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+        }
+        
+        async function runAIChat(promptText) {
+            if (isProcessingAI) {
+                appendOutput('Maldix AI: Already processing a request. Please wait.', 'text-yellow-400');
+                return;
+            }
+            
+            isProcessingAI = true;
+            commandInput.disabled = true; 
+            cursor.style.display = 'none';
+            const loadingIndicator = document.createElement('div');
+            loadingIndicator.innerHTML = '<span class="text-cyan-400">Maldix AI: Processing...</span>';
+            outputHistory.appendChild(loadingIndicator);
+            terminal.scrollTop = terminal.scrollHeight;
+
+
+            const payload = {
+                contents: [{ parts: [{ text: promptText }] }],
+            };
+
+            try {
+                const result = await makeApiCallWithBackoff(payload);
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (text) {
+                    loadingIndicator.innerHTML = `<span class="${currentTheme.textColor}">${text}</span>`;
+                } else {
+                    loadingIndicator.innerHTML = 'Maldix AI Error: Received an empty response or candidate was blocked.';
+                    loadingIndicator.classList.remove('text-cyan-400');
+                    loadingIndicator.classList.add('text-red-400');
+                }
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                loadingIndicator.innerHTML = `Maldix AI Fatal Error: ${error.message}`;
+                loadingIndicator.classList.remove('text-cyan-400');
+                loadingIndicator.classList.add('text-red-400');
+            } finally {
+                isProcessingAI = false;
+                commandInput.disabled = false; 
+                cursor.style.display = 'inline-block';
+                focusInput();
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+        }
+
+        function initTerminalState() {
+            const storedUsername = localStorage.getItem(USERNAME_KEY);
+            if (storedUsername) {
+                currentUsername = storedUsername;
+            }
+            updatePromptDisplay(); 
+            
+            const storedThemeIndex = localStorage.getItem(THEME_KEY);
+            let themeToApply = themes[0]; 
+
+            if (storedThemeIndex !== null) {
+                const index = parseInt(storedThemeIndex, 10);
+                if (!isNaN(index) && index >= 0 && index < themes.length) {
+                    themeToApply = themes[index];
+                }
+            }
+            applyTheme(themeToApply);
+
+            const storedPassword = localStorage.getItem(PASSWORD_KEY);
+            if (storedPassword) {
+                isLocked = true;
+                appendOutput('<div class="mb-2 text-yellow-400">Welcome to Maldix OS (1.0).</div>', 'text-yellow-400');
+                appendOutput('<div class="mb-2 text-cyan-400">Really cool command prompt (Supported by Chromebooks and owned by Maddox)</div>', 'text-cyan-400');
+                appendOutput('---------------------------------------------------------', 'text-red-400');
+                appendOutput('Maldix OS is currently **LOCKED**. Enter password to proceed.', 'text-red-400');
+                appendOutput('Hint: Use the correct password to unlock or find the secret bypass command.', 'text-yellow-400');
+                appendOutput('---------------------------------------------------------', 'text-red-400');
+            } else {
+                isLocked = false;
+                appendOutput('<div class="mb-2 text-yellow-400">Welcome to Maldix OS (1.0).</div>', 'text-yellow-400');
+                appendOutput('<div class="mb-2 text-cyan-400">Really cool command prompt (Supported by Chromebooks and owned by Maddox)</div>', 'text-cyan-400');
+                appendOutput('<div class="mb-2">---------------------------------------------------------</div>', currentTheme.textColor);
+            }
+        }
+        initTerminalState(); 
+
+        commandInput.addEventListener('input', () => {
+            if (isLocked) {
+                typedCommandDisplay.textContent = '*'.repeat(commandInput.value.length);
+            } else {
+                typedCommandDisplay.textContent = commandInput.value;
+            }
+            terminal.scrollTop = terminal.scrollHeight; 
+        });
+
+        commandInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); 
+                
+                if (isProcessingAI) {
+                    appendOutput('Maldix AI: Please wait for the current request to finish.', 'text-yellow-400');
+                    return;
+                }
+
+                const command = commandInput.value;
+
+                const commandLine = document.createElement('div');
+                const typedCommandColorClass = currentTheme.textColor;
+                let displayCommand = command;
+
+                if (isLocked) {
+                    displayCommand = '*'.repeat(command.length);
+                }
+
+                commandLine.innerHTML = `<span class="${currentTheme.promptColor}">${currentUsername}@maldix:~ $</span> <span class="${typedCommandColorClass}">${displayCommand}</span>`;
+                outputHistory.appendChild(commandLine);
+
+                processCommand(command);
+
+                commandInput.value = '';
+                typedCommandDisplay.textContent = '';
+
+                terminal.scrollTop = terminal.scrollHeight;
+
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault(); 
+            } else if (e.key === 'Tab') {
+                e.preventDefault(); 
+            }
+        });
+
+        function handlePasswordCommand(fullCommand) {
+            const parts = fullCommand.split(/\s+/).filter(p => p.length > 0);
+            const action = parts[0].toLowerCase();
+
+            if (action === 'setpassword') {
+                const subcommand = parts[1];
+                
+                if (!subcommand) {
+                    appendOutput(`Maldix error: Usage: setpassword [new_password] or setpassword clear`, 'text-red-400');
+                    return true;
+                }
+
+                if (subcommand.toLowerCase() === 'clear') {
+                    if (isLocked) {
+                        appendOutput(`Maldix error: Cannot clear password while locked. Must use 'imlockedout' bypass first.`, 'text-red-400');
+                        return true;
+                    }
+
+                    localStorage.removeItem(PASSWORD_KEY);
+                    isLocked = false;
+                    appendOutput(`Maldix success: Password CLEARED. Terminal is now unlocked permanently.`, 'text-yellow-400');
+                    return true;
+                }
+                
+                const newPassword = subcommand; 
+                localStorage.setItem(PASSWORD_KEY, newPassword);
+                isLocked = true;
+                appendOutput(`Maldix success: Password set to '${newPassword}'. The terminal is now LOCKED. Refresh to test.`, 'text-yellow-400');
+                return true;
+            }
+
+            return false; 
+        }
+
+        function processCommand(command) {
+            const trimmedCommand = command.trim();
+            const lowerCommand = trimmedCommand.toLowerCase();
+            
+            if (lowerCommand === 'imlockedout') {
+                if (localStorage.getItem(PASSWORD_KEY)) {
+                    localStorage.removeItem(PASSWORD_KEY);
+                    isLocked = false;
+                    appendOutput('Maldix EMERGENCY BYPASS: System password disabled. Access UNLOCKED.', 'text-red-600');
+                } else {
+                    appendOutput(`Maldix warning: The system is already unlocked.`, 'text-yellow-400');
+                }
+                return;
+            }
+
+            if (isLocked) {
+                const storedPassword = localStorage.getItem(PASSWORD_KEY);
+
+                if (trimmedCommand === storedPassword) {
+                    isLocked = false;
+                    appendOutput(`Maldix success: Terminal UNLOCKED.`, 'text-yellow-400');
+                } else {
+                    appendOutput(`Maldix error: Access DENIED. Invalid password.`, 'text-red-400');
+                    return; 
+                }
+            }
+            
+            if (handlePasswordCommand(trimmedCommand)) {
+                return;
+            }
+            
+            if (lowerCommand.startsWith('ai ')) {
+                const promptText = trimmedCommand.substring('ai '.length).trim();
+                
+                if (!promptText) {
+                    appendOutput(`Maldix error: Usage: ai [your_question]`, 'text-red-400');
+                    return;
+                }
+                
+                runAIChat(promptText);
+                return;
+            }
+
+            if (lowerCommand === 'cloak') {
+                try {
+                    const fullHtml = document.documentElement.outerHTML;
+
+                    const newWindow = window.open('about:blank', '_blank');
+
+                    if (newWindow) {
+                        newWindow.document.write(fullHtml);
+                        newWindow.document.close();
+
+                        appendOutput(`Maldix success: Cloning the current terminal into a new about:blank window.`, 'text-yellow-400');
+                        appendOutput(`Maldix tip: The new window should be fully functional. Closing input on this window.`, 'text-cyan-400');
+
+                        commandInput.disabled = true;
+                        typedCommandDisplay.textContent = '...cloaked. Input disabled in this window.';
+                        cursor.style.display = 'none';
+                        
+                    } else {
+                        appendOutput('Maldix error: Popup blocked! Please allow popups for this page.', 'text-red-400');
+                    }
+                } catch (e) {
+                    appendOutput(`Maldix runtime error: Could not execute 'cloak'. ${e.message}`, 'text-red-400');
+                }
+                return;
+            }
+
+            if (lowerCommand.startsWith('title ')) {
+                const newTitle = trimmedCommand.substring('title '.length).trim();
+                
+                if (!newTitle) {
+                    appendOutput(`Maldix error: Usage: title [new_window_title]`, 'text-red-400');
+                    return;
+                }
+
+                document.title = newTitle;
+                appendOutput(`Maldix success: Window title changed to: "${newTitle}"`, 'text-yellow-400');
+                return;
+            }
+            
+            if (lowerCommand.startsWith('user set ')) {
+                const parts = trimmedCommand.split(/\s+/).filter(p => p.length > 0);
+
+                if (parts.length < 3 || parts[1].toLowerCase() !== 'set') {
+                    appendOutput(`Maldix error: Usage: user set [new_username]`, 'text-red-400');
+                    return;
+                }
+                
+                const newUsername = parts[2];
+                if (newUsername.length === 0 || newUsername.length > 20 || !/^[a-zA-Z0-9_-]+$/.test(newUsername)) {
+                    appendOutput(`Maldix error: Username must be 1-20 characters long and contain only letters, numbers, hyphens, or underscores.`, 'text-red-400');
+                    return;
+                }
+
+                currentUsername = newUsername;
+                localStorage.setItem(USERNAME_KEY, newUsername);
+                updatePromptDisplay(); 
+                
+                appendOutput(`Maldix success: Username updated to '${newUsername}'. This change is saved locally.`, 'text-yellow-400');
+                return;
+            }
+
+            if (lowerCommand === 'clear') {
+                outputHistory.innerHTML = '';
+                return;
+            } 
+            
+            if (lowerCommand === 'help') {
+                appendOutput(`Maldix OS Available Commands:`, 'text-yellow-400');
+                appendOutput(`-------------------------------------------------`, 'text-yellow-400');
+                appendOutput(`help                 - Displays this list of commands.`, 'text-white');
+                appendOutput(`clear                - Clears the terminal screen.`, 'text-white');
+                appendOutput(`fortune              - Displays a random, cryptic message or piece of advice.`, 'text-white');
+                appendOutput(`theme [number]       - Lists all ${themes.length} themes, or applies and SAVES a theme by number (e.g., 'theme 5').`, 'text-cyan-400');
+                appendOutput(`ai [prompt]          - **New!** Ask the integrated language model a question (e.g., 'ai tell me a joke').`, 'text-green-400');
+                appendOutput(`banner [message]     - Displays the message in large ASCII art characters.`, 'text-white');
+                appendOutput(`title [new_title]    - Changes the title displayed in the browser tab.`, 'text-white');
+                appendOutput(`user set [name]      - Changes the local username displayed in the prompt.`, 'text-white');
+                appendOutput(`setpassword [pass]   - Sets a password for terminal access (stored locally). Use 'clear' to remove it (only when unlocked).`, 'text-cyan-400');
+                appendOutput(`cloak                - Clones the entire terminal into a new, independent about:blank window for stealth. (Disables this window)`, 'text-cyan-400');
+                appendOutput(`open [URL]           - Directly opens the specified URL in a new tab.`, 'text-white');
+                appendOutput(`mini [URL]           - Opens the URL in a new, minimalist browser window (no address bar/controls).`, 'text-white');
+                appendOutput(`aboutblank [URL]     - Attempts to open the URL inside an iframe in an about:blank window (may be blocked by site security).`, 'text-white');
+                appendOutput(`blob [URL]      - Opens the URL using a Blob URL proxy method (alternative to aboutblank).`, 'text-white');
+                appendOutput(`-------------------------------------------------`, 'text-yellow-400');
+                return;
+            }
+
+            if (lowerCommand.startsWith('banner')) {
+                const message = trimmedCommand.substring('banner'.length).trim();
+                
+                if (!message) {
+                    appendOutput(`Maldix error: Usage: banner [message]. Example: 'banner hello world'`, 'text-red-400');
+                    return;
+                }
+
+                const bannerArt = generateBanner(message);
+                
+                appendOutput('', currentTheme.textColor); 
+                appendOutput(bannerArt, currentTheme.textColor);
+                appendOutput('', currentTheme.textColor); 
+                return;
+            }
+
+            if (lowerCommand.startsWith('theme')) {
+                const parts = trimmedCommand.split(/\s+/).filter(p => p.length > 0);
+                const themeArgument = parts[1];
+
+                if (!themeArgument) {
+                    appendOutput(`Maldix OS Theme Selector (${themes.length} available):`, 'text-yellow-400');
+                    appendOutput(`-------------------------------------------------`, 'text-yellow-400');
+                    
+                    let themeList = '';
+                    themes.forEach((theme, index) => {
+                        const paddedIndex = String(index + 1).padStart(2, ' ');
+                        themeList += `${paddedIndex}. ${theme.name.padEnd(15, ' ')} | Text: ${theme.textColor} | Prompt: ${theme.promptColor}\n`;
+                    });
+                    
+                    appendOutput(themeList.trim(), 'text-white');
+                    appendOutput(`-------------------------------------------------`, 'text-yellow-400');
+                    appendOutput(`Usage: Type 'theme [number]' to apply and SAVE your theme. (e.g., 'theme 23')`, 'text-cyan-400');
+                    return;
+                }
+
+                const themeIndex = parseInt(themeArgument) - 1;
+
+                if (isNaN(themeIndex) || themeIndex < 0 || themeIndex >= themes.length) {
+                    appendOutput(`Maldix error: Invalid theme number "${themeArgument}". Use 'theme' to list options.`, 'text-red-400');
+                    return;
+                }
+
+                const selectedTheme = themes[themeIndex];
+                applyTheme(selectedTheme);
+                localStorage.setItem(THEME_KEY, themeIndex.toString());
+                appendOutput(`Maldix success: Applied theme '${selectedTheme.name}' (${themeArgument}). This theme is now SAVED.`, 'text-yellow-400');
+                return;
+            }
+            
+            if (lowerCommand === 'fortune') {
+                const randomIndex = Math.floor(Math.random() * fortunes.length);
+                appendOutput(`Maldix Fortune: ${fortunes[randomIndex]}`, 'text-yellow-200');
+                return;
+            }
+            
+            if (lowerCommand === 'honk shoo') {
+                appendOutput(`honk shoo`, 'text-red-400');
+                playHonkShoo();
+                return;
+            }
+            
+            if (lowerCommand === 'chase') {
+                appendAnimatedText('hello chase', 'rainbow-text');
+                playChaseSound();
+                return;
+            }
+
+            if (lowerCommand.startsWith('aboutblank ')) {
+                const urlArgument = trimmedCommand.substring('aboutblank '.length).trim();
+                
+                if (!urlArgument) {
+                    appendOutput(`Maldix error: Usage: aboutblank [URL]`, 'text-red-400');
+                    return;
+                }
+
+                const targetUrl = normalizeUrl(urlArgument);
+                const encodedUrl = encodeURI(targetUrl);
+                
+                try {
+                    const newWindow = window.open('about:blank', '_blank');
+
+                    if (newWindow) {
+                        const htmlContent = `
+                            <!DOCTYPE html>
+                            <html style="margin: 0; padding: 0; overflow: hidden; height: 100%;">
+                            <head>
+                                <title>Maldix Proxy: ${targetUrl}</title>
+                            </head>
+                            <body style="margin: 0; padding: 0; overflow: hidden; height: 100%;">
+                                <iframe src="${encodedUrl}" style="width: 100%; height: 100%; border: none;"></iframe>
+                            </body>
+                            </html>
+                        `;
+                        newWindow.document.write(htmlContent);
+                        newWindow.document.close();
+                        
+                        appendOutput(`Maldix warning: Attempting to embed ${targetUrl} via about:blank proxy.`, 'text-yellow-400');
+                        appendOutput(`Maldix security note: If the page refuses to load (connection denied/blank page), it is because the target website uses security headers (X-Frame-Options or CSP) to prevent itself from being loaded in an iframe. Try the 'open [URL]' command instead.`, 'text-yellow-600');
+                    } else {
+                        appendOutput('Maldix error: Popup blocked! Please allow popups for this page.', 'text-red-400');
+                    }
+                } catch (e) {
+                    appendOutput(`Maldix runtime error: Could not execute 'aboutblank'. ${e.message}`, 'text-red-400');
+                }
+                
+                return;
+            }
+
+            if (lowerCommand.startsWith('blob ')) {
+                const urlArgument = trimmedCommand.substring('blob'.length).trim();
+                
+                if (!urlArgument) {
+                    appendOutput(`Maldix error: Usage: blob [URL]`, 'text-red-400');
+                    return;
+                }
+
+                const targetUrl = normalizeUrl(urlArgument);
+                const encodedUrl = encodeURI(targetUrl);
+                
+                try {
+                    const proxyHtml = `
+                        <!DOCTYPE html>
+                        <html style="margin: 0; padding: 0; overflow: hidden; height: 100%;">
+                        <head>
+                            <title>Maldix Blob Proxy: ${targetUrl}</title>
+                        </head>
+                        <body style="margin: 0; padding: 0; overflow: hidden; height: 100%;">
+                            <iframe src="${encodedUrl}" style="width: 100%; height: 100%; border: none;"></iframe>
+                        </body>
+                        </html>
+                    `;
+                    
+                    const blob = new Blob([proxyHtml], { type: 'text/html' });
+                    
+                    const blobUrl = URL.createObjectURL(blob);
+
+                    const newWindow = window.open(blobUrl, '_blank');
+
+                    if (newWindow) {
+                        appendOutput(`Maldix warning: Attempting to embed ${targetUrl} via BLOB URL proxy.`, 'text-yellow-400');
+                        appendOutput(`Maldix security note: Blob proxy is an alternative to 'aboutblank' and may bypass some iframe restrictions, but not all. If loading fails, use 'open [URL]'.`, 'text-yellow-600');
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000); 
+                    } else {
+                        appendOutput('Maldix error: Popup blocked! Please allow popups for this page.', 'text-red-400');
+                    }
+                } catch (e) {
+                    appendOutput(`Maldix runtime error: Could not execute 'blobproxy'. ${e.message}`, 'text-red-400');
+                }
+                
+                return;
+            }
+
+            if (lowerCommand.startsWith('open ')) {
+                const urlArgument = trimmedCommand.substring('open '.length).trim();
+                
+                if (!urlArgument) {
+                    appendOutput(`Maldix error: Usage: open [URL]`, 'text-red-400');
+                    return;
+                }
+
+                const targetUrl = normalizeUrl(urlArgument);
+                
+                try {
+                    const newWindow = window.open(targetUrl, '_blank');
+                    
+                    if (newWindow) {
+                        appendOutput(`Maldix success: Opening ${targetUrl} directly in a new tab.`, 'text-yellow-400');
+                        appendOutput(`Maldix tip: Use 'aboutblank [URL]' if you need to use the iframe proxy method.`, 'text-cyan-400');
+                    } else {
+                        appendOutput('Maldix error: Popup blocked! Please allow popups for this page.', 'text-red-400');
+                    }
+                } catch (e) {
+                    appendOutput(`Maldix runtime error: Could not execute 'open'. ${e.message}`, 'text-red-400');
+                }
+                
+                return;
+            }
+            
+            if (lowerCommand.startsWith('mini ')) {
+                const urlArgument = trimmedCommand.substring('mini '.length).trim();
+                
+                if (!urlArgument) {
+                    appendOutput(`Maldix error: Usage: mini [URL]`, 'text-red-400');
+                    return;
+                }
+
+                const targetUrl = normalizeUrl(urlArgument);
+                
+                try {
+                    const newWindow = window.open(targetUrl, '_blank', 'width=800,height=600,toolbar=no,location=no,menubar=no,status=no,resizable=yes,scrollbars=yes');
+                    
+                    if (newWindow) {
+                        appendOutput(`Maldix success: Launching ${targetUrl} in minimalist window mode.`, 'text-yellow-400');
+                    } else {
+                        appendOutput('Maldix error: Popup blocked! Please allow popups for this page.', 'text-red-400');
+                    }
+                } catch (e) {
+                    appendOutput(`Maldix runtime error: Could not execute 'mini'. ${e.message}`, 'text-red-400');
+                }
+                
+                return;
+            }
+
+            if (trimmedCommand === '') {
+            } else if (lowerCommand.match(/^(ai|aboutblank|blob|open|mini|banner|setpassword|user|cloak|title|theme)$/)) {
+                appendOutput(`Maldix error: Usage requires an argument. Type 'help' for a list of available commands.`, 'text-red-400');
+            } else {
+                appendOutput(`Maldix received command: "${trimmedCommand}"`, 'text-gray-400');
+                appendOutput(`Maldix error: Command not found. Type 'help' for a list of available commands.`, 'text-red-400');
+            }
+        }
+
+        document.addEventListener('click', focusInput);
+        document.addEventListener('touchstart', focusInput);
+    </script>
+</body>
+</html>
